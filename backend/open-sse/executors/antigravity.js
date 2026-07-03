@@ -44,30 +44,64 @@ export class AntigravityExecutor extends BaseExecutor {
   transformRequest(model, body, stream, credentials) {
     const projectId = credentials?.projectId?.trim() || this.generateProjectId();
 
-    // Fix contents for Claude models via Antigravity
-    const contents = body.request?.contents?.map(c => {
+    // Get base request data - handle both envelope and raw body
+    const isEnvelope = body && body.request && (body.model || body.project);
+    const req = isEnvelope ? body.request : (body || {});
+    const { 
+      tools: _originalTools, 
+      toolConfig: _originalToolConfig, 
+      systemInstruction, 
+      // Strip OpenAI fields that Google hates
+      max_tokens,
+      stream: _unusedStream,
+      messages: _unusedMessages,
+      model: _unusedModel,
+      stop: _unusedStop,
+      ...requestWithoutTools 
+    } = req;
+    
+    // Process contents - ensure we don't lose them
+    const rawContents = req.contents || requestWithoutTools.contents || [];
+    let finalContents = rawContents.map(c => {
       let role = c.role;
-      // functionResponse must be role "user" for Claude models
-      if (c.parts?.some(p => p.functionResponse)) {
-        role = "user";
-      }
-      // Strip thought-only parts, keep thoughtSignature on functionCall parts (Gemini 3+ requires it)
-      const parts = c.parts?.filter(p => {
+      if (c.parts?.some(p => p.functionResponse)) role = "user";
+      
+      const parts = (c.parts || []).filter(p => {
         if (p.thought && !p.functionCall) return false;
         if (p.thoughtSignature && !p.functionCall && !p.text) return false;
         return true;
       });
-      if (role !== c.role || parts?.length !== c.parts?.length) {
-        return { ...c, role, parts };
+      
+      return { ...c, role, parts };
+    }).filter(c => c.parts && c.parts.length > 0);
+
+    // Merge systemInstruction into the first user message for maximum compatibility
+    if (systemInstruction?.parts?.length > 0) {
+      const sysText = systemInstruction.parts.map(p => p.text).filter(Boolean).join("\n");
+      if (sysText) {
+        if (finalContents.length > 0 && finalContents[0].role === "user") {
+          // Prepend to first user message
+          finalContents[0].parts = [{ text: sysText + "\n\n" }, ...finalContents[0].parts];
+        } else {
+          // Create new first user message
+          finalContents = [{ role: "user", parts: [{ text: sysText }] }, ...finalContents];
+        }
       }
-      return c;
-    });
+    }
 
-    // Sanitize tool schemas and function names before sending to Antigravity.
-    let tools = body.request?.tools;
+    const generationConfig = { ...(req.generationConfig || {}) };
+    if (generationConfig.maxOutputTokens > MAX_ANTIGRAVITY_OUTPUT_TOKENS) {
+      generationConfig.maxOutputTokens = MAX_ANTIGRAVITY_OUTPUT_TOKENS;
+    }
 
+    // Ensure conversation ends with a user message (required by Claude/Antigravity)
+    while (finalContents.length > 0 && finalContents[finalContents.length - 1].role === "model") {
+      finalContents.pop();
+    }
+
+    // Sanitize tools
+    let tools = req.tools;
     if (tools && tools.length > 0) {
-      // Merge all groups into a single functionDeclarations group (Gemini expects 1 group)
       const allDeclarations = tools.flatMap(group =>
         (group.functionDeclarations || []).map(fn => ({
           ...fn,
@@ -80,43 +114,20 @@ export class AntigravityExecutor extends BaseExecutor {
       tools = allDeclarations.length > 0 ? [{ functionDeclarations: allDeclarations }] : [];
     }
 
-    const { tools: _originalTools, toolConfig: _originalToolConfig, systemInstruction, ...requestWithoutTools } = body.request || {};
-    const generationConfig = { ...(requestWithoutTools.generationConfig || {}) };
-    if (generationConfig.maxOutputTokens > MAX_ANTIGRAVITY_OUTPUT_TOKENS) {
-      generationConfig.maxOutputTokens = MAX_ANTIGRAVITY_OUTPUT_TOKENS;
-    }
-
-    // Cloud Code API does not support systemInstruction as a standalone field.
-    // Prepend system prompt parts as the first user-role content item instead.
-    let finalContents = contents || requestWithoutTools.contents || [];
-    if (systemInstruction?.parts?.length > 0) {
-      const sysParts = systemInstruction.parts.filter(p => p.text);
-      if (sysParts.length > 0) {
-        finalContents = [
-          { role: "user", parts: sysParts },
-          { role: "model", parts: [{ text: "Understood." }] },
-          ...finalContents,
-        ];
-      }
-    }
-
     const transformedRequest = {
-      ...requestWithoutTools,
-      generationConfig,
       contents: finalContents,
-      ...(tools && { tools }),
-      sessionId: body.request?.sessionId || deriveSessionId(credentials?.email || credentials?.connectionId),
-      safetySettings: undefined,
+      generationConfig,
+      sessionId: req.sessionId || body.sessionId || deriveSessionId(credentials?.email || credentials?.connectionId),
+      ...(tools?.length > 0 && { tools }),
       ...(tools?.length > 0 && { toolConfig: { functionCallingConfig: { mode: "VALIDATED" } } })
     };
 
     return {
-      ...body,
-      project: projectId,
+      project: body.project || projectId,
       model: model,
-      userAgent: "antigravity",
-      requestType: "agent",
-      requestId: `agent-${crypto.randomUUID()}`,
+      userAgent: body.userAgent || "antigravity",
+      requestType: body.requestType || "agent",
+      requestId: body.requestId || `agent-${crypto.randomUUID()}`,
       request: transformedRequest
     };
   }
@@ -263,60 +274,36 @@ export class AntigravityExecutor extends BaseExecutor {
         }, proxyOptions);
 
         const isForbiddenQuota = response.status === HTTP_STATUS.FORBIDDEN;
-        if (response.status === HTTP_STATUS.RATE_LIMITED || response.status === HTTP_STATUS.SERVICE_UNAVAILABLE || isForbiddenQuota) {
-          // Try to get retry time from headers first
-          let retryMs = this.parseRetryHeaders(response.headers);
+        const isRateLimited = response.status === HTTP_STATUS.RATE_LIMITED;
 
-          // If no retry time in headers, try to parse from error message body
-          if (!retryMs) {
-            try {
-              const errorBody = await response.clone().text();
-              log?.warn?.("AG403", `Full 403 body: ${errorBody.slice(0, 500)}`);
-              const errorJson = JSON.parse(errorBody);
-              const errorMessage = errorJson?.error?.message || errorJson?.message || "";
-              log?.warn?.("AG403", `Error message parsed: ${errorMessage}`);
-              retryMs = this.parseRetryFromErrorMessage(errorMessage);
-            } catch (e) {
-              // Ignore parse errors, will fall back to exponential backoff
-            }
-          }
+        if (isRateLimited || isForbiddenQuota) {
+          const bodyText = await response.text();
+          const errorInfo = this.parseError(response, bodyText);
+          
+          // Return immediately to allow account rotation in the outer loop (chat.js)
+          return {
+            status: errorInfo.status,
+            message: errorInfo.message,
+            resetsAtMs: errorInfo.resetsAtMs
+          };
+        }
 
-          // If it is 403 and has no retry limit parsed, do not treat it as rate limit
-          if (isForbiddenQuota && !retryMs) {
-            log?.debug?.("RETRY", `403 Forbidden (non-quota), skipping rate limit handling`);
-          } else {
-            if (retryMs && retryMs <= MAX_RETRY_AFTER_MS && retryAfterAttemptsByUrl[urlIndex] < MAX_RETRY_AFTER_RETRIES) {
-              retryAfterAttemptsByUrl[urlIndex]++;
-              log?.debug?.("RETRY", `${response.status} with Retry-After: ${Math.ceil(retryMs / 1000)}s, waiting... (${retryAfterAttemptsByUrl[urlIndex]}/${MAX_RETRY_AFTER_RETRIES})`);
-              await new Promise(resolve => setTimeout(resolve, retryMs));
-              urlIndex--;
-              continue;
-            }
-
-            // Auto retry only for 429 when retryMs is 0 or undefined
-            if (response.status === HTTP_STATUS.RATE_LIMITED && (!retryMs || retryMs === 0) && retryAttemptsByUrl[urlIndex] < MAX_AUTO_RETRIES) {
-              retryAttemptsByUrl[urlIndex]++;
-              // Exponential backoff: 2s, 4s, 8s...
-              const backoffMs = Math.min(1000 * (2 ** retryAttemptsByUrl[urlIndex]), MAX_RETRY_AFTER_MS);
-              log?.debug?.("RETRY", `429 auto retry ${retryAttemptsByUrl[urlIndex]}/${MAX_AUTO_RETRIES} after ${backoffMs / 1000}s`);
-              await new Promise(resolve => setTimeout(resolve, backoffMs));
-              urlIndex--;
-              continue;
-            }
-
-            log?.debug?.("RETRY", `${response.status}, Retry-After ${retryMs ? `too long (${Math.ceil(retryMs / 1000)}s)` : 'missing'}, trying fallback`);
-            lastStatus = response.status;
-
-            if (urlIndex + 1 < fallbackCount) {
-              continue;
-            }
+        if (response.status === HTTP_STATUS.SERVICE_UNAVAILABLE) {
+          // Internal retry only for 503 Service Unavailable
+          if (retryAttemptsByUrl[urlIndex] < MAX_AUTO_RETRIES) {
+            retryAttemptsByUrl[urlIndex]++;
+            const delay = 2000 * Math.pow(2, retryAttemptsByUrl[urlIndex] - 1);
+            log?.warn?.("RETRY", `503 auto retry ${retryAttemptsByUrl[urlIndex]}/${MAX_AUTO_RETRIES} after ${delay/1000}s`);
+            await new Promise(r => setTimeout(r, delay));
+            urlIndex--; // Retry same URL
+            continue;
           }
         }
 
-        if (this.shouldRetry(response.status, urlIndex)) {
-          log?.debug?.("RETRY", `${response.status} on ${url}, trying fallback ${urlIndex + 1}`);
+        if (!response.ok) {
           lastStatus = response.status;
-          continue;
+          lastError = await response.text();
+          if (urlIndex + 1 < fallbackCount) continue;
         }
 
         return { response, url, headers, transformedBody };
