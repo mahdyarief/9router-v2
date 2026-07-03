@@ -80,16 +80,30 @@ export class AntigravityExecutor extends BaseExecutor {
       tools = allDeclarations.length > 0 ? [{ functionDeclarations: allDeclarations }] : [];
     }
 
-    const { tools: _originalTools, toolConfig: _originalToolConfig, ...requestWithoutTools } = body.request || {};
+    const { tools: _originalTools, toolConfig: _originalToolConfig, systemInstruction, ...requestWithoutTools } = body.request || {};
     const generationConfig = { ...(requestWithoutTools.generationConfig || {}) };
     if (generationConfig.maxOutputTokens > MAX_ANTIGRAVITY_OUTPUT_TOKENS) {
       generationConfig.maxOutputTokens = MAX_ANTIGRAVITY_OUTPUT_TOKENS;
     }
 
+    // Cloud Code API does not support systemInstruction as a standalone field.
+    // Prepend system prompt parts as the first user-role content item instead.
+    let finalContents = contents || requestWithoutTools.contents || [];
+    if (systemInstruction?.parts?.length > 0) {
+      const sysParts = systemInstruction.parts.filter(p => p.text);
+      if (sysParts.length > 0) {
+        finalContents = [
+          { role: "user", parts: sysParts },
+          { role: "model", parts: [{ text: "Understood." }] },
+          ...finalContents,
+        ];
+      }
+    }
+
     const transformedRequest = {
       ...requestWithoutTools,
       generationConfig,
-      ...(contents && { contents }),
+      contents: finalContents,
       ...(tools && { tools }),
       sessionId: body.request?.sessionId || deriveSessionId(credentials?.email || credentials?.connectionId),
       safetySettings: undefined,
