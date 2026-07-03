@@ -308,49 +308,90 @@ def find_jwt_in_obj(obj, depth=0):
     return None
 
 try:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Cookie": sys.argv[1],
-        "Accept": "application/json"
-    }
-    res = requests.get("https://app.leonardo.ai/api/auth/get-session", headers=headers, timeout=15)
-    if res.status_code == 200:
-        data = res.json()
-        jwt = find_jwt_in_obj(data) or ""
-        if jwt:
-            balance = 150
+    cookie_str = sys.argv[1]
+
+    # Parse cookie map
+    cookie_map = {}
+    for item in cookie_str.split(";"):
+        item = item.strip()
+        if "=" in item:
+            k, v = item.split("=", 1)
+            cookie_map[k.strip()] = v.strip()
+
+    # 1. next-auth.session-token IS the Bearer JWT directly
+    SESSION_TOKEN_NAMES = [
+        "__Secure-next-auth.session-token",
+        "next-auth.session-token",
+        "__Secure-authjs.session-token",
+        "authjs.session-token",
+    ]
+    jwt = ""
+    for name in SESSION_TOKEN_NAMES:
+        if name in cookie_map and len(cookie_map[name]) > 50:
+            jwt = cookie_map[name]
+            break
+
+    # 2. Fallback: POST /api/auth/session with CSRF
+    if not jwt:
+        CSRF_NAMES = [
+            "__Host-next-auth.csrf-token", "__Secure-next-auth.csrf-token",
+            "next-auth.csrf-token", "__Host-authjs.csrf-token",
+            "__Secure-authjs.csrf-token", "authjs.csrf-token"
+        ]
+        csrf_raw = next((cookie_map[n] for n in CSRF_NAMES if n in cookie_map), "")
+        csrf = csrf_raw.split("|")[0] if "|" in csrf_raw else csrf_raw
+
+        hdrs = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Cookie": cookie_str,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": "https://app.leonardo.ai",
+            "Referer": "https://app.leonardo.ai/",
+        }
+
+        for method, body in ([("POST", json.dumps({"csrfToken": csrf}).encode())] if csrf else []) + [("GET", None)]:
             try:
-                gql_url = "https://api.leonardo.ai/v1/graphql"
-                gql_headers = {
-                    "accept": "*/*",
-                    "content-type": "application/json",
-                    "origin": "https://app.leonardo.ai",
-                    "referer": "https://app.leonardo.ai/",
-                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "authorization": f"Bearer {jwt}"
-                }
-                gql_payload = {
-                    "operationName": "GetTokenBalance",
-                    "variables": {},
-                    "query": "query GetTokenBalance { user_details { subscriptionTokens paidTokens rolloverTokens __typename } }"
-                }
-                gql_res = requests.post(gql_url, headers=gql_headers, json=gql_payload, timeout=10)
-                if gql_res.status_code == 200:
-                    gql_data = gql_res.json().get("data", {})
-                    user_details = gql_data.get("user_details", [])
-                    if user_details:
-                        details = user_details[0]
-                        balance = (details.get("subscriptionTokens") or 0) + (details.get("paidTokens") or 0) + (details.get("rolloverTokens") or 0)
-            except Exception:
-                pass
-            print(json.dumps({"status": "success", "jwt": jwt, "balance": balance}))
-        else:
-            print(json.dumps({"status": "error", "message": f"JWT not found in session response: {json.dumps(data)[:200]}"}))
+                res = requests.request(method, "https://app.leonardo.ai/api/auth/session", headers=hdrs, data=body, timeout=15)
+                if res.status_code == 200 and res.text.strip() not in ("null", ""):
+                    data = res.json()
+                    jwt = find_jwt_in_obj(data) or ""
+                    if jwt: break
+            except Exception: pass
+
+    if jwt:
+        balance = 150
+        try:
+            gql_url = "https://api.leonardo.ai/v1/graphql"
+            gql_headers = {
+                "accept": "*/*",
+                "content-type": "application/json",
+                "origin": "https://app.leonardo.ai",
+                "referer": "https://app.leonardo.ai/",
+                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "authorization": f"Bearer {jwt}"
+            }
+            gql_payload = {
+                "operationName": "GetTokenBalance",
+                "variables": {},
+                "query": "query GetTokenBalance { user_details { subscriptionTokens paidTokens rolloverTokens __typename } }"
+            }
+            gql_res = requests.post(gql_url, headers=gql_headers, json=gql_payload, timeout=10)
+            if gql_res.status_code == 200:
+                gql_data = gql_res.json().get("data", {})
+                user_details = gql_data.get("user_details", [])
+                if user_details:
+                    details = user_details[0]
+                    balance = (details.get("subscriptionTokens") or 0) + (details.get("paidTokens") or 0) + (details.get("rolloverTokens") or 0)
+        except Exception:
+            pass
+        print(json.dumps({"status": "success", "jwt": jwt, "balance": balance}))
     else:
-        print(json.dumps({"status": "error", "message": f"HTTP {res.status_code}: {res.text}"}))
+        print(json.dumps({"status": "error", "message": f"next-auth.session-token not found. Cookies: {list(cookie_map.keys())[:8]}"}))
 except Exception as e:
     print(json.dumps({"status": "error", "message": str(e)}))
-`;
+`;\n
+
 
       const execFileAsync = promisify(execFile);
       const { stdout } = await execFileAsync(venvPython, ["-c", pythonCode, cookieStr]);
