@@ -331,8 +331,23 @@ def create_workers_ai_token(global_key, email, account_id, token_name="9router W
 def handle_identity_verification(page, ammail_base_url, ammail_api_key, email):
     """Detect CF identity verification popup, send OTP, fetch from Ammail, submit."""
     try:
-        popup = page.locator("text=Verify Your Identity, text=Send Verification Code").first
-        if not popup.is_visible(timeout=3000):
+        # Use multiple selectors to detect the popup
+        popup_visible = False
+        for sel in [
+            "h2:has-text('Verify Your Identity')",
+            "h1:has-text('Verify Your Identity')",
+            "div:has-text('Verify Your Identity')",
+            "button:has-text('Send Verification Code')",
+        ]:
+            try:
+                el = page.locator(sel).first
+                if el.is_visible(timeout=2000):
+                    popup_visible = True
+                    break
+            except Exception:
+                continue
+
+        if not popup_visible:
             return True  # No popup, all good
 
         log_step("Popup 'Verify Your Identity' terdeteksi!")
