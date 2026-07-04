@@ -84,7 +84,7 @@ function CodeBuddyTab() {
     leonardo: false,
     weavy: false,
     "kimi-coding": false,
-    "cloudflare-ai": false,
+    "cloudflare-ai": true,
     proxy: false,
   });
   const [cfGlobalApiKey, setCfGlobalApiKey] = useState("");
@@ -141,7 +141,7 @@ function CodeBuddyTab() {
       const savedOpenSettings = localStorage.getItem("automation_open_settings");
       if (savedOpenSettings) {
         try {
-          setOpenSettings(JSON.parse(savedOpenSettings));
+          setOpenSettings((prev) => ({ ...prev, ...JSON.parse(savedOpenSettings) }));
         } catch (e) {
           console.error("Failed to parse saved automation open settings", e);
         }
