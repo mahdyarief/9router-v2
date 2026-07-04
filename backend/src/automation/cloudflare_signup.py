@@ -327,6 +327,84 @@ def create_workers_ai_token(global_key, email, account_id, token_name="9router W
         log_step(f"create_workers_ai_token error: {e}")
     return None
 
+# ── Handle "Verify Your Identity" popup ────────────────────────────────────────
+def handle_identity_verification(page, ammail_base_url, ammail_api_key, email):
+    """Detect CF identity verification popup, send OTP, fetch from Ammail, submit."""
+    try:
+        popup = page.locator("text=Verify Your Identity, text=Send Verification Code").first
+        if not popup.is_visible(timeout=3000):
+            return True  # No popup, all good
+
+        log_step("Popup 'Verify Your Identity' terdeteksi!")
+
+        # Click "Send Verification Code"
+        send_btn = page.locator("button:has-text('Send Verification Code')").first
+        if send_btn.is_visible(timeout=2000):
+            send_btn.click()
+            log_step("Klik Send Verification Code...")
+            time.sleep(3)
+        else:
+            # Try clicking Cancel and skip
+            cancel = page.locator("button:has-text('Cancel')").first
+            if cancel.is_visible(timeout=1000):
+                cancel.click()
+            return False
+
+        # Fetch OTP from Ammail
+        if not ammail_base_url or not ammail_api_key:
+            log_step("Ammail tidak dikonfigurasi, tidak bisa ambil OTP")
+            return False
+
+        log_step("Menunggu OTP di Ammail...")
+        otp_code = None
+        for attempt in range(20):  # 60 seconds
+            time.sleep(3)
+            try:
+                msgs = ammail_request(ammail_base_url, ammail_api_key, f"/inboxes/{email.split('@')[0]}/messages")
+                for msg in msgs.get("messages", []):
+                    # Get full body
+                    msg_detail = ammail_request(ammail_base_url, ammail_api_key, f"/messages/{msg['id']}")
+                    body = msg_detail.get("body", "") or msg_detail.get("html", "") or msg.get("snippet", "")
+                    # CF OTP is typically 6 digits
+                    import re as _re
+                    otp_match = _re.search(r'\b(\d{6})\b', body)
+                    if otp_match:
+                        otp_code = otp_match.group(1)
+                        log_step(f"OTP ditemukan: {otp_code}")
+                        break
+            except Exception as e:
+                log_step(f"Ammail OTP fetch error: {e}")
+            if otp_code:
+                break
+
+        if not otp_code:
+            log_step("OTP tidak diterima dalam 60 detik")
+            return False
+
+        # Enter OTP
+        otp_input = page.locator("input[type='text'][maxlength='6'], input[placeholder*='code'], input[name*='code'], input[type='number']").first
+        if otp_input.is_visible(timeout=5000):
+            otp_input.fill(otp_code)
+            time.sleep(0.5)
+            log_step("OTP diisi!")
+
+            # Submit
+            for sel in ["button:has-text('Verify')", "button:has-text('Submit')", "button:has-text('Confirm')", "button[type='submit']"]:
+                try:
+                    btn = page.locator(sel).first
+                    if btn.is_visible(timeout=1000):
+                        btn.click()
+                        time.sleep(2)
+                        log_step("OTP submitted!")
+                        return True
+                except Exception:
+                    continue
+        else:
+            log_step("OTP input field tidak ditemukan")
+    except Exception as e:
+        log_step(f"handle_identity_verification error: {e}")
+    return False
+
 # ── Extract Global API Key from dashboard page ─────────────────────────────────
 def extract_global_api_key(page, password):
     """Navigate to API tokens page and extract Global API Key."""
@@ -838,6 +916,17 @@ def main():
             log_step("WARN: Account ID tidak ditemukan, lanjut tanpa account_id")
 
         # ── Step 9: Extract Global API Key ────────────────────────────────────
+        # First navigate to API tokens page to trigger the identity popup if any
+        try:
+            page.goto("https://dash.cloudflare.com/profile/api-tokens", wait_until="domcontentloaded", timeout=20000)
+            wait_for_cf_clearance(page, timeout=10)
+            time.sleep(3)
+            # Handle "Verify Your Identity" popup - send OTP via Ammail
+            if ammail_ok:
+                handle_identity_verification(page, args.ammail_base_url, args.ammail_api_key, args.email)
+        except Exception as e:
+            log_step(f"Pre-step 9 nav error: {e}")
+
         global_key = None
         try:
             global_key = extract_global_api_key(page, args.password)
