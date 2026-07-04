@@ -35,7 +35,7 @@ def die(msg):
 
 # ── Ammail helpers ─────────────────────────────────────────────────────────────
 def ammail_request(base_url, api_key, path, method="GET", data=None):
-    url = base_url.rstrip("/") + path
+    url = base_url.rstrip("/") + "/api" + path
     req = urllib.request.Request(url, method=method)
     req.add_header("X-API-Key", api_key)
     req.add_header("Content-Type", "application/json")
@@ -45,23 +45,26 @@ def ammail_request(base_url, api_key, path, method="GET", data=None):
         return json.loads(resp.read())
 
 def create_ammail_inbox(base_url, api_key, email):
+    """Create inbox by splitting email into alias + domain."""
     try:
-        ammail_request(base_url, api_key, "/inboxes", method="POST", data={"email": email})
+        alias, domain = email.split("@", 1)
+        ammail_request(base_url, api_key, "/inboxes", method="POST",
+                       data={"alias": alias, "domain": domain})
     except Exception:
         pass  # might already exist
 
 def wait_for_cf_verify_email(base_url, api_key, email, timeout=120):
     log_step(f"Menunggu email verifikasi Cloudflare ({email})...")
+    alias = email.split("@")[0]
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            data = ammail_request(base_url, api_key, f"/inboxes/{urllib.parse.quote(email)}/messages")
+            data = ammail_request(base_url, api_key, f"/inboxes/{urllib.parse.quote(alias)}/messages")
             messages = data.get("messages", [])
             for msg in messages:
                 subject = msg.get("subject", "")
                 body = msg.get("body", msg.get("html", msg.get("text", "")))
                 if "cloudflare" in subject.lower() or "verify" in subject.lower() or "confirm" in subject.lower():
-                    # Extract verification link
                     patterns = [
                         r'https://[^\s\'"<>]*confirm[^\s\'"<>]*',
                         r'https://[^\s\'"<>]*verify[^\s\'"<>]*',
@@ -379,18 +382,23 @@ def main():
         time.sleep(random.uniform(1.5, 2.5))
 
         # ── Step 2: Fill email ────────────────────────────────────────────────
+        log_step("Menunggu form signup muncul...")
+        try:
+            page.wait_for_selector("input[name='email'], input[autocomplete='email']", timeout=15000)
+        except Exception as e:
+            die(f"Form signup tidak muncul: {e}")
+
         log_step("Mengisi email...")
         email_sel = [
             "input[name='email']",
+            "input[autocomplete='email']",
             "input[type='email']",
-            "#email",
-            "input[placeholder*='email' i]",
         ]
         email_filled = False
         for sel in email_sel:
             try:
                 el = page.locator(sel).first
-                if el.is_visible(timeout=3000):
+                if el.is_visible(timeout=2000):
                     el.click()
                     time.sleep(0.3)
                     el.fill(args.email)
@@ -403,7 +411,7 @@ def main():
 
         # ── Step 3: Fill password ─────────────────────────────────────────────
         log_step("Mengisi password...")
-        pw_inputs = page.locator("input[type='password']")
+        pw_inputs = page.locator("input[name='password'], input[type='password']")
         pw_count = pw_inputs.count()
         if pw_count >= 1:
             pw_inputs.nth(0).fill(args.password)

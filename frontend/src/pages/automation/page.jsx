@@ -616,7 +616,7 @@ function CodeBuddyTab() {
                   className="w-16 text-xs p-1.5 rounded-lg border border-border-subtle bg-surface text-center text-text-main"
                 />
               </div>
-              {ammailDomains.length > 1 && (
+              {ammailDomains.length >= 1 && (
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-text-muted">Email domain:</span>
                   <select
