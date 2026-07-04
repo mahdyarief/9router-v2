@@ -700,40 +700,59 @@ def main():
             current_url = page.url
             log_step(f"After login URL: {current_url}")
 
+            # Extract account_id from login redirect URL immediately
+            m = re.search(r"/([a-f0-9]{32})(?:/|$)", current_url)
+            if m:
+                _early_account_id = m.group(1)
+                log_step(f"Account ID from login URL: {_early_account_id[:8]}...")
+            else:
+                _early_account_id = ""
+
         except Exception as e:
             log_step(f"Login error: {e}")
+            _early_account_id = ""
 
         # ── Step 8: Get to dashboard and extract account ID ───────────────────
-        log_step("Memuat Cloudflare Dashboard...")
-        try:
-            # Navigate to /home which always redirects to account-specific URL
-            page.goto("https://dash.cloudflare.com/home", wait_until="domcontentloaded", timeout=30000)
-            wait_for_cf_clearance(page, timeout=20)
-            time.sleep(3)
-        except Exception as e:
-            log_step(f"Dashboard load warning: {e}")
+        # If we already got account_id from login URL, skip navigation
+        if _early_account_id:
+            log_step(f"Sudah punya Account ID dari login URL, skip re-navigate.")
+        else:
+            log_step("Memuat Cloudflare Dashboard...")
             try:
-                page = browser.new_page()
                 page.goto("https://dash.cloudflare.com/home", wait_until="domcontentloaded", timeout=30000)
                 wait_for_cf_clearance(page, timeout=20)
                 time.sleep(3)
-            except Exception as e2:
-                log_step(f"New page also failed: {e2}")
+            except Exception as e:
+                log_step(f"Dashboard load warning: {e}")
+                try:
+                    page = browser.new_page()
+                    page.goto("https://dash.cloudflare.com/home", wait_until="domcontentloaded", timeout=30000)
+                    wait_for_cf_clearance(page, timeout=20)
+                    time.sleep(3)
+                except Exception as e2:
+                    log_step(f"New page also failed: {e2}")
+
 
         # Extract account_id — try multiple methods
         account_id = ""
 
-        # Method 1: from URL (after /home redirect)
-        try:
-            for _ in range(8):
-                url_match = re.search(r"/([a-f0-9]{32})(?:/|$)", page.url)
-                if url_match:
-                    account_id = url_match.group(1)
-                    log_step(f"Account ID from URL: {account_id[:8]}...")
-                    break
-                time.sleep(1)
-        except Exception as e:
-            log_step(f"account_id from URL error: {e}")
+        # Method 0: from login URL (already captured above)
+        if _early_account_id:
+            account_id = _early_account_id
+            log_step(f"Account ID (from login): {account_id[:8]}...")
+
+        # Method 1: from current page URL
+        if not account_id:
+            try:
+                for _ in range(8):
+                    url_match = re.search(r"/([a-f0-9]{32})(?:/|$)", page.url)
+                    if url_match:
+                        account_id = url_match.group(1)
+                        log_step(f"Account ID from URL: {account_id[:8]}...")
+                        break
+                    time.sleep(1)
+            except Exception as e:
+                log_step(f"account_id from URL error: {e}")
 
         # Method 2: from JS window/React state
         if not account_id:
