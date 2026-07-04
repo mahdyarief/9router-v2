@@ -509,7 +509,20 @@ def main():
     parser.add_argument("--proxy-user")
     parser.add_argument("--proxy-pass")
     parser.add_argument("--2captcha-key", default="", dest="captcha_key")
+    # ── Manual override: skip automation, paste token directly ────────────────
+    parser.add_argument("--token", default="",
+                        help="Paste CF API token manual — skip seluruh automation")
+    parser.add_argument("--account-id", default="", dest="account_id_arg",
+                        help="Cloudflare Account ID (wajib jika pakai --token)")
     args = parser.parse_args()
+
+    # ── Shortcut: jika user paste token manual, langsung simpan ──────────────
+    if args.token:
+        if not args.account_id_arg:
+            die("--token butuh --account-id juga")
+        log_step(f"Mode manual token: {args.token[:12]}...")
+        success(args.token.strip(), args.account_id_arg.strip(), args.email)
+        return
 
     # Import Camoufox (same as weavy_signup.py)
     try:
