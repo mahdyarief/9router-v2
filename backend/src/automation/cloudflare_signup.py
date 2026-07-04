@@ -421,7 +421,7 @@ def handle_identity_verification(page, ammail_base_url, ammail_api_key, email):
     return False
 
 # ── Extract Global API Key from dashboard page ─────────────────────────────────
-def extract_global_api_key(page, password):
+def extract_global_api_key(page, password, ammail_base_url="", ammail_api_key="", email=""):
     """Navigate to API tokens page and extract Global API Key."""
     log_step("Membuka halaman API Tokens...")
     try:
@@ -429,40 +429,8 @@ def extract_global_api_key(page, password):
         wait_for_cf_clearance(page, timeout=20)
         time.sleep(3)
 
-        # ── Handle security verification popup ────────────────────────────────
-        # CF sometimes shows "Send a one-time code" or "Verify your identity" popup
-        popup_selectors = [
-            "button:has-text('Send a code')",
-            "button:has-text('Send code')",
-            "button:has-text('Skip')",
-            "button:has-text('Cancel')",
-            "button:has-text('Dismiss')",
-            "button:has-text('Close')",
-            "[aria-label='Close']",
-            "[data-testid='dismiss-button']",
-        ]
-        for sel in popup_selectors:
-            try:
-                btn = page.locator(sel).first
-                if btn.is_visible(timeout=1500):
-                    log_step(f"Popup terdeteksi, dismiss: {sel}")
-                    btn.click()
-                    time.sleep(1)
-                    break
-            except Exception:
-                continue
-
-        # If "Send a code" popup — click Send, wait for OTP field, skip (close modal)
-        try:
-            send_code = page.locator("button:has-text('Send a one-time code'), button:has-text('Send verification')").first
-            if send_code.is_visible(timeout=1000):
-                log_step("Security code popup — menutup modal...")
-                # Try ESC key to close
-                page.keyboard.press("Escape")
-                time.sleep(1)
-        except Exception:
-            pass
-
+        # ── Handle "Verify Your Identity" popup ─────────────────────────────
+        handle_identity_verification(page, ammail_base_url, ammail_api_key, email)
         time.sleep(1)
 
         # Find "View" button for Global API Key
@@ -956,7 +924,12 @@ def main():
 
         global_key = None
         try:
-            global_key = extract_global_api_key(page, args.password)
+            global_key = extract_global_api_key(
+                page, args.password,
+                ammail_base_url=args.ammail_base_url,
+                ammail_api_key=args.ammail_api_key,
+                email=args.email,
+            )
         except Exception as e:
             log_step(f"extract_global_api_key failed: {e}")
 
@@ -995,14 +968,25 @@ def main():
                     log_step("Token name filled")
                     time.sleep(0.5)
 
-                # Expand "AI & Machine Learning" section
-                ai_section = page.locator("button:has-text('AI & Machine Learning'), [aria-label*='AI'], text='AI & Machine Learning'").first
-                try:
-                    if ai_section.is_visible(timeout=3000):
-                        ai_section.click()
-                        time.sleep(1)
-                        log_step("AI & Machine Learning section expanded")
-                except Exception:
+                # Expand "AI & Machine Learning" section by clicking the row
+                ai_expanded = False
+                for sel in [
+                    "text=AI & Machine Learning",
+                    "button:has-text('AI')",
+                    "[aria-label*='AI']",
+                ]:
+                    try:
+                        el = page.locator(sel).first
+                        if el.is_visible(timeout=3000):
+                            el.click()
+                            time.sleep(1.5)
+                            ai_expanded = True
+                            log_step("AI & Machine Learning section expanded")
+                            break
+                    except Exception:
+                        continue
+
+                if not ai_expanded:
                     log_step("Could not find AI section, trying all permissions...")
 
                 # Select "Workers AI" permission — find checkbox or dropdown
