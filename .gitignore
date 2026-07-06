@@ -19,3 +19,13 @@ out/
 .idea/
 .vscode/
 *.swp
+
+# Database files — must never be committed
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime generated directories
+backend/profiles/
+backend/canva_debug/
+har/
