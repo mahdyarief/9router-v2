@@ -903,7 +903,6 @@ def run_automation(args, settings):
         firefox_user_prefs={
             "network.trr.mode": 5,
         },
-        no_viewport=True,
     )
 
     if args.proxy_server:
@@ -1935,6 +1934,35 @@ def main():
             d = (settings.get(key) or "").strip().lower()
             if d:
                 known_ammail_domains.add(d)
+
+        # Query ammail API to get full domain list dynamically
+        api_key = settings.get("ammail_api_key")
+        base_url = settings.get("ammail_base_url")
+        fallback_url = settings.get("ammail_cf_workers_dev_url")
+        
+        urls_to_try = []
+        if base_url:
+            urls_to_try.append(base_url.rstrip("/"))
+        if fallback_url:
+            urls_to_try.append(fallback_url.rstrip("/"))
+            
+        for base in urls_to_try:
+            try:
+                req = urllib.request.Request(
+                    f"{base}/api",
+                    headers={
+                        "X-API-Key": api_key or "",
+                        "Accept": "application/json",
+                        "User-Agent": "Mozilla/5.0"
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=5) as res:
+                    info_data = json.loads(res.read().decode("utf-8"))
+                    for domain_item in info_data.get("domains", []):
+                        if domain_item:
+                            known_ammail_domains.add(domain_item.strip().lower())
+            except Exception:
+                pass
 
         if email_domain and email_domain not in known_ammail_domains:
             # Domain tidak ada di ammail → ini akun eksternal (Google/GSuite)
