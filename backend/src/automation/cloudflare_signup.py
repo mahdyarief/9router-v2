@@ -846,7 +846,7 @@ def main():
                                 el = page.locator(sel).first
                                 cnt = el.count()
                                 if cnt > 0 and el.is_visible(timeout=2000):
-                                    el.triple_click()
+                                    el.click(click_count=3)
                                     el.fill(args.email)
                                     email_filled = True
                                     log_step(f"Login email filled via: {sel}")
@@ -870,7 +870,7 @@ def main():
                             try:
                                 pw_el = page.locator(pw_sel).first
                                 if pw_el.count() > 0 and pw_el.is_visible(timeout=2000):
-                                    pw_el.triple_click()
+                                    pw_el.click(click_count=3)
                                     pw_el.fill(args.password)
                                     pw_filled = True
                                     log_step(f"Login password filled via: {pw_sel}")
@@ -1464,7 +1464,7 @@ def main():
                         try:
                             el = page.locator(name_sel).first
                             if el.count() > 0 and el.is_visible(timeout=2000):
-                                el.triple_click()
+                                el.click(click_count=3)
                                 el.fill("9router-workers-ai")
                                 log_step("Token name renamed: 9router-workers-ai")
                                 break
