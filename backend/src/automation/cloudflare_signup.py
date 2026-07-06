@@ -1250,14 +1250,33 @@ def main():
             """
             log_step("Mencoba buat token via Playwright request API...")
             try:
-                base = "https://dash.cloudflare.com/api/v4"
+                # Try api.cloudflare.com with session cookies (may include CF_Authorization)
+                base = "https://api.cloudflare.com/client/v4"
                 common_headers = {
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "X-Requested-With": "XMLHttpRequest",
                     "Referer": "https://dash.cloudflare.com/",
                     "Origin": "https://dash.cloudflare.com",
                 }
+
+                # Also try from within page context (sends CF_Authorization cookie as same-site)
+                try:
+                    cookie_info = page.evaluate("""
+                        async () => {
+                            try {
+                                const r = await fetch('https://api.cloudflare.com/client/v4/accounts?per_page=1', {
+                                    credentials: 'include'
+                                });
+                                const d = await r.json();
+                                return {status: r.status, ok: d.success, count: (d.result||[]).length};
+                            } catch(e) { return {error: e.message}; }
+                        }
+                    """)
+                    log_step(f"CF accounts via page.evaluate: {cookie_info}")
+                    if isinstance(cookie_info, dict) and cookie_info.get('ok') and cookie_info.get('count', 0) > 0:
+                        log_step("Session auth works via evaluate — proceeding with token create")
+                except Exception as cke:
+                    log_step(f"page.evaluate accounts check: {cke}")
 
                 # Step 1: get Workers AI permission group id
                 pg_resp = page.request.fetch(
@@ -2094,17 +2113,27 @@ def main():
 
 
         # Final API key to save
-        final_api_key = workers_ai_token or global_key or ""
-        
         if not workers_ai_token and token_from_route:
             workers_ai_token = token_from_route[0]
             log_step(f"Token from route: {workers_ai_token[:10]}...")
 
+        # Strategy A: Global API Key from dashboard UI (last resort — needs OTP from email)
+        if not workers_ai_token and ammail_ok:
+            log_step("Fallback: mencoba Global API Key dari dashboard UI...")
+            try:
+                global_key_token = create_token_via_global_key(page)
+                if global_key_token:
+                    workers_ai_token = global_key_token
+                    log_step(f"Workers AI token via Global Key: {workers_ai_token[:10]}...")
+            except Exception as gke:
+                log_step(f"Global API Key fallback error: {gke}")
+
         if not workers_ai_token:
             die("Tidak ada API key yang bisa digunakan")
 
+
         log_step("Selesai! Menyimpan kredensial ke 9router...")
-        success(final_api_key, account_id, args.email)
+        success(workers_ai_token, account_id, args.email)
 
 
 if __name__ == "__main__":
