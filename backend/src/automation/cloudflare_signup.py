@@ -1111,6 +1111,16 @@ def main():
                         time.sleep(2)
                         log_step("Sent verification code for Global API Key")
 
+                        # Record existing message IDs before sending to skip stale OTPs
+                        seen_msg_ids = set()
+                        try:
+                            pre_msgs = ammail_request(_ammail_base_url, _ammail_api_key,
+                                f"/inboxes/{urllib.parse.quote(args.email.split('@')[0])}/messages")
+                            pre_list = pre_msgs.get("messages", []) if isinstance(pre_msgs, dict) else (pre_msgs if isinstance(pre_msgs, list) else [])
+                            seen_msg_ids = {str(m.get('id', '')) for m in pre_list}
+                            log_step(f"Pre-existing msgs: {len(seen_msg_ids)}")
+                        except Exception: pass
+
                         # Poll ammail for the OTP
                         otp_code = None
                         for _ in range(20):
@@ -1121,6 +1131,10 @@ def main():
                                 # ammail_request returns dict {"messages": [...]} not a list directly
                                 msgs_list = msgs_resp.get("messages", []) if isinstance(msgs_resp, dict) else (msgs_resp if isinstance(msgs_resp, list) else [])
                                 for msg in msgs_list:
+                                    mid = str(msg.get('id', ''))
+                                    # Skip pre-existing messages (stale OTPs)
+                                    if mid in seen_msg_ids:
+                                        continue
                                     if 'cloudflare' in str(msg.get('from', '')).lower() or 'cloudflare' in str(msg.get('subject', '')).lower():
                                         mid = msg.get('id', '')
                                         full = ammail_request(_ammail_base_url, _ammail_api_key, f"/messages/{urllib.parse.quote(str(mid))}")
@@ -1233,18 +1247,21 @@ def main():
                             if otp_input:
                                 otp_input.fill(otp_code)
                                 time.sleep(0.5)
-                            else:
-                                log_step("OTP input not found via any selector")
-                                for btn_sel in ["button:has-text('Verify')", "button:has-text('Continue')", "button:has-text('Submit')", "button[type='submit']"]:
+                                page.screenshot(path="/tmp/cf_otp_filled.png")
+                                # Click Verify/Confirm after filling OTP
+                                for btn_sel in ["button:has-text('Verify')", "button:has-text('Confirm')", "button:has-text('Submit')", "button:has-text('Continue')", "button[type='submit']"]:
                                     try:
                                         b = page.locator(btn_sel).first
-                                        if b.count() > 0:
+                                        if b.count() > 0 and b.is_visible(timeout=2000):
                                             b.click()
                                             time.sleep(3)
-                                            log_step(f"Entered OTP, clicked {btn_sel}")
+                                            log_step(f"OTP submitted via: {btn_sel}")
                                             break
                                     except Exception:
                                         continue
+                            else:
+                                log_step("OTP input not found via any selector")
+
                 except Exception as e:
                     log_step(f"OTP verify step: {e}")
 
