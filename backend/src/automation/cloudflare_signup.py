@@ -732,20 +732,42 @@ def main():
         time.sleep(3)
 
         # Check for errors (email already registered, etc.)
+        # Use JS to get all visible text — catch any wording CF uses
         email_already_registered = False
-        for err_sel in ["text=already registered", "text=already exists", "text=taken", ".error-message"]:
-            try:
-                if page.locator(err_sel).first.is_visible(timeout=1000):
-                    log_step(f"Email sudah terdaftar ({args.email}) — skip signup, langsung login")
+        try:
+            page_text_lower = page.evaluate("document.body.innerText").lower()
+            log_step(f"Post-signup page snippet: {page_text_lower[:200]}")
+            already_kw = [
+                "already registered", "already exists", "already in use",
+                "already taken", "account exists", "email exists",
+                "sudah terdaftar", "already have an account",
+                "email address is already"
+            ]
+            for kw in already_kw:
+                if kw in page_text_lower:
+                    log_step(f"Email sudah terdaftar ({args.email}) — detected: '{kw}'")
                     email_already_registered = True
                     break
+        except Exception as e:
+            log_step(f"Post-signup check error: {e}")
+
+        # Also check: if no "check your email" / "verify" success message → assume registered
+        if not email_already_registered:
+            try:
+                success_kw = ["check your email", "verify your email", "verification email", "link has been sent"]
+                if not any(kw in page_text_lower for kw in success_kw):
+                    # Not success AND not "already registered" → check URL
+                    # If still on signup page (no redirect), likely email exists (CF resent silently)
+                    if "sign-up" in page.url or "register" in page.url or page.url.endswith("/sign-up"):
+                        log_step(f"Still on signup URL after submit — treating as email_already_registered")
+                        email_already_registered = True
             except Exception:
                 pass
 
         if email_already_registered:
-            # Jump to login section — goto the login page
+            # Navigate FRESH to /login (don't carry stale security_token from verify link)
             page.goto("https://dash.cloudflare.com/login", wait_until="domcontentloaded", timeout=30000)
-            time.sleep(2)
+            time.sleep(3)
 
 
         # ── Step 6: Email verification ────────────────────────────────────────
@@ -923,10 +945,18 @@ def main():
                                 continue
 
                         log_step("Menunggu redirect ke dashboard...")
-                        time.sleep(8)
+                        time.sleep(10)
+                        page.screenshot(path="/tmp/cf_after_login_submit.png")
 
                         current_url = page.url
                         log_step(f"After login URL: {current_url}")
+                        # If still on login, log error text
+                        if "/login" in current_url:
+                            try:
+                                err_txt = page.evaluate("document.body.innerText")
+                                log_step(f"Login page text (first 300): {err_txt[:300]}")
+                            except Exception:
+                                pass
                         _m_after = re.search(r"/([a-f0-9]{32})(?:/|$)", current_url)
                         if _m_after:
                             _early_account_id = _m_after.group(1)
