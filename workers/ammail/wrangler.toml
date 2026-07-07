@@ -3,10 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 # Custom Domain
-custom_domain = {
-  zone_id = "1a33863475cba456cf6f263a7b62b6cd"
-  hostname = "ammail.toirate.com"
-}
+[[custom_domains]]
+zone_id = "1a33863475cba456cf6f263a7b62b6cd"
+hostname = "ammail.toirate.com"
 
 # D1 Database
 [[d1_databases]]
