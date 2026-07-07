@@ -1,6 +1,7 @@
 name = "ammail"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
+workers_dev = true
 
 # D1 Database
 [[d1_databases]]
@@ -12,9 +13,6 @@ database_id = "348c3db2-67e6-4187-8c10-51b054e33cbf"
 [vars]
 API_KEY = "123"
 TELEGRAM_BOT_TOKEN = "7502015333:AAE59oY11x737Q8191162005jJf49945V78"
-
-# Deploy to workers.dev subdomain
-workers_dev = true
 
 # Routes
 [[routes]]
