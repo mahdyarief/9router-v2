@@ -1384,10 +1384,10 @@ function AmmailTab() {
         setInboxes(fetchedInboxes);
         setSelectedInboxAddress(prev => {
           if (prev) {
-            const exists = fetchedInboxes.some(i => i.address.toLowerCase() === prev.toLowerCase());
+            const exists = fetchedInboxes.some(i => i.address?.toLowerCase() === prev.toLowerCase());
             if (exists) return prev;
           }
-          return fetchedInboxes.length > 0 ? fetchedInboxes[0].address : "";
+          return fetchedInboxes.length > 0 && fetchedInboxes[0].address ? fetchedInboxes[0].address : "";
         });
         setWebhook(data.webhook);
         setWebhookUrl(data.webhook_url);
@@ -1664,7 +1664,7 @@ function AmmailTab() {
   // Filter incoming OTPs/emails
   const filteredOtps = otps.filter((o) => {
     if (!selectedInboxAddress) return false;
-    if (o.address.toLowerCase() !== selectedInboxAddress.toLowerCase()) return false;
+    if (!o.address || o.address.toLowerCase() !== selectedInboxAddress.toLowerCase()) return false;
     if (activeFolder === "unread" && o.used_at) return false;
     if (activeFolder === "read" && !o.used_at) return false;
     if (activeFolder === "otp" && !o.otp_code) return false;
@@ -1672,8 +1672,8 @@ function AmmailTab() {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
-        o.sender.toLowerCase().includes(q) ||
-        o.subject.toLowerCase().includes(q) ||
+        (o.sender && o.sender.toLowerCase().includes(q)) ||
+        (o.subject && o.subject.toLowerCase().includes(q)) ||
         (o.otp_code && o.otp_code.includes(q))
       );
     }
@@ -1683,7 +1683,7 @@ function AmmailTab() {
   const getFolderCount = (folder) => {
     return otps.filter((o) => {
       if (!selectedInboxAddress) return false;
-      if (o.address.toLowerCase() !== selectedInboxAddress.toLowerCase()) return false;
+      if (!o.address || o.address.toLowerCase() !== selectedInboxAddress.toLowerCase()) return false;
       if (folder === "unread" && o.used_at) return false;
       if (folder === "read" && !o.used_at) return false;
       if (folder === "otp" && !o.otp_code) return false;
@@ -1861,7 +1861,7 @@ function AmmailTab() {
                 <div className="space-y-0.5">
                   {inboxes
                     .filter((inbox) =>
-                      inbox.address.toLowerCase().includes(searchQuery.toLowerCase())
+                      inbox.address && inbox.address.toLowerCase().includes(searchQuery.toLowerCase())
                     )
                     .map((inbox) => (
                       <div
@@ -1871,7 +1871,7 @@ function AmmailTab() {
                           setActiveFolder("all");
                         }}
                         className={`group/inbox flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                          selectedInboxAddress.toLowerCase() === inbox.address.toLowerCase()
+                          selectedInboxAddress && inbox.address && selectedInboxAddress.toLowerCase() === inbox.address.toLowerCase()
                             ? "bg-primary/10 text-primary"
                             : "text-text-muted hover:bg-surface"
                         }`}
