@@ -29,7 +29,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++ nginx
 
 # Create Python virtual environment for automation scripts
-RUN python3 -m venv /app/backend/.venv
+RUN python3 -m venv /app/.venv
 
 # Copy workspace package files
 COPY package.json package-lock.json ./
