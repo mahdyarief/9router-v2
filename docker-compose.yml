@@ -25,7 +25,7 @@ services:
     networks:
       - services_backplane
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:20128/health"]
+      test: ["CMD", "wget", "-qO-", "http://0.0.0.0:20128/health"]
       interval: 30s
       timeout: 5s
       retries: 3
