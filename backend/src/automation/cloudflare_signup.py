@@ -608,9 +608,14 @@ def main():
             raise
 
     with browser_ctx as browser:
-        # Pass viewport directly to avoid Playwright's default viewport settings
-        # that include unsupported properties like 'isMobile'
-        page = browser.new_page(viewport={"width": 1920, "height": 1080})
+        # Create page without viewport param to avoid Camoufox rejecting
+        # Playwright's default 'isMobile' property
+        page = browser.new_page()
+        # Set viewport size separately
+        try:
+            page.set_viewport_size({"width": 1920, "height": 1080})
+        except Exception:
+            pass  # Camoufox may manage viewport internally
 
         # ── Step 1: Open Cloudflare signup ────────────────────────────────────
         log_step("Membuka halaman registrasi Cloudflare...")
