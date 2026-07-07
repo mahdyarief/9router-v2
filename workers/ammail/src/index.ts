@@ -15,7 +15,7 @@ export default {
     }
 
     // API endpoints
-    if (path.startsWith("/api/")) {
+    if (path.startsWith("/api")) {
       return handleAPI(request, env, path);
     }
 
@@ -68,29 +68,131 @@ async function handleAPI(request: Request, env: Env, path: string): Promise<Resp
   }
 
   try {
-    // GET /api/otp/:email
-    if (path.startsWith("/api/otp/")) {
-      const email = decodeURIComponent(path.substring(9));
-      const otp = await getLatestOTP(env, email);
-      return new Response(JSON.stringify({ otp }), {
+    // GET /api/health
+    if (path === "/api/health") {
+      return new Response(JSON.stringify({ status: "ok", version: "1.0" }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // GET /api/emails
-    if (path === "/api/emails") {
+    // GET /api - info
+    if (path === "/api") {
+      const domains = await env.DB.prepare("SELECT DISTINCT domain FROM emails").all();
+      return new Response(JSON.stringify({ 
+        domains: domains.results.map((d: any) => d.domain),
+        version: "1.0"
+      }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /api/inboxes - create inbox
+    if (path === "/api/inboxes" && request.method === "POST") {
+      const body = await request.json();
+      const { alias, domain } = body;
+      const email = `${alias}@${domain}`;
+      
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO inboxes (email, alias, domain, created_at) VALUES (?, ?, ?, ?)"
+      )
+        .bind(email, alias, domain, Date.now())
+        .run();
+
+      return new Response(JSON.stringify({ email, ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/inboxes - list inboxes
+    if (path === "/api/inboxes" && request.method === "GET") {
       const { results } = await env.DB.prepare(
-        "SELECT * FROM emails ORDER BY received_at DESC LIMIT 100"
+        "SELECT * FROM inboxes ORDER BY created_at DESC"
       ).all();
-      return new Response(JSON.stringify({ emails: results }), {
+      return new Response(JSON.stringify({ inboxes: results }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // DELETE /api/emails/:id
-    if (path.startsWith("/api/emails/") && request.method === "DELETE") {
-      const id = path.substring(12);
-      await env.DB.prepare("DELETE FROM emails WHERE id = ?").bind(id).run();
+    // DELETE /api/inboxes/:alias
+    if (path.startsWith("/api/inboxes/") && request.method === "DELETE") {
+      const alias = path.substring(13);
+      await env.DB.prepare("DELETE FROM inboxes WHERE alias = ?").bind(alias).run();
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/inboxes/:alias/messages
+    if (path.includes("/messages") && request.method === "GET") {
+      const parts = path.split("/");
+      const alias = parts[2];
+      const { results } = await env.DB.prepare(
+        "SELECT * FROM emails WHERE to_email LIKE ? ORDER BY received_at DESC LIMIT 50"
+      )
+        .bind(`%@${alias}%`)
+        .all();
+      return new Response(JSON.stringify({ messages: results }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/messages/:messageId
+    if (path.startsWith("/api/messages/") && request.method === "GET") {
+      const id = path.substring(14);
+      const { results } = await env.DB.prepare(
+        "SELECT * FROM emails WHERE id = ?"
+      )
+        .bind(id)
+        .all();
+      
+      if (results.length === 0) {
+        return new Response(JSON.stringify({ error: "Not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify(results[0]), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /api/webhook
+    if (path === "/api/webhook" && request.method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT * FROM webhooks LIMIT 1"
+      ).all();
+      return new Response(JSON.stringify({ webhook: results[0] || null }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // PUT /api/webhook
+    if (path === "/api/webhook" && request.method === "PUT") {
+      const body = await request.json();
+      const { url, secret } = body;
+      
+      await env.DB.prepare(
+        "INSERT OR REPLACE INTO webhooks (id, url, secret, created_at) VALUES (1, ?, ?, ?)"
+      )
+        .bind(url, secret, Date.now())
+        .run();
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /api/webhook/test
+    if (path === "/api/webhook/test" && request.method === "POST") {
+      return new Response(JSON.stringify({ ok: true, message: "Webhook test successful" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // DELETE /api/webhook
+    if (path === "/api/webhook" && request.method === "DELETE") {
+      await env.DB.prepare("DELETE FROM webhooks").run();
       return new Response(JSON.stringify({ ok: true }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -110,10 +212,9 @@ async function handleAPI(request: Request, env: Env, path: string): Promise<Resp
 
 // Extract OTP code from email body
 function extractOTP(body: string): string | null {
-  // Common OTP patterns
   const patterns = [
-    /\b(\d{6})\b/, // 6 digits
-    /\b(\d{4})\b/, // 4 digits
+    /\b(\d{6})\b/,
+    /\b(\d{4})\b/,
     /code[:\s]+(\d{6})/i,
     /otp[:\s]+(\d{6})/i,
     /verification[:\s]+(\d{6})/i,
@@ -127,17 +228,6 @@ function extractOTP(body: string): string | null {
   return null;
 }
 
-// Get latest OTP for email
-async function getLatestOTP(env: Env, email: string): Promise<string | null> {
-  const { results } = await env.DB.prepare(
-    "SELECT otp FROM emails WHERE to_email = ? AND otp IS NOT NULL ORDER BY received_at DESC LIMIT 1"
-  )
-    .bind(email)
-    .all();
-
-  return results.length > 0 ? results[0].otp : null;
-}
-
 // Send Telegram notification
 async function sendTelegramNotification(
   env: Env,
@@ -146,7 +236,7 @@ async function sendTelegramNotification(
   subject: string,
   otp: string | null
 ): Promise<void> {
-  const chatId = "-1001234567890"; // Replace with your chat ID
+  const chatId = "-1001234567890";
   const message = `📧 New Email\n\nTo: ${to}\nFrom: ${from}\nSubject: ${subject}${
     otp ? `\n\n🔑 OTP: ${otp}` : ""
   }`;
