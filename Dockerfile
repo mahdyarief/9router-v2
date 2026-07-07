@@ -34,13 +34,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create Python virtual environment for automation scripts
-RUN python3 -m venv /app/.venv
+RUN python3 -m venv /app/backend/.venv
 
 # Install Python dependencies for automation
-RUN /app/.venv/bin/pip install --upgrade pip && \
-    /app/.venv/bin/pip install playwright camoufox && \
-    /app/.venv/bin/python -m playwright install --with-deps firefox && \
-    /app/.venv/bin/python -m camoufox fetch
+RUN /app/backend/.venv/bin/pip install --upgrade pip && \
+    /app/backend/.venv/bin/pip install playwright camoufox && \
+    /app/backend/.venv/bin/python -m playwright install --with-deps firefox && \
+    /app/backend/.venv/bin/python -m camoufox fetch
 
 # Copy workspace package files
 COPY package.json package-lock.json ./
