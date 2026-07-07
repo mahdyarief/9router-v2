@@ -13,6 +13,9 @@ database_id = "348c3db2-67e6-4187-8c10-51b054e33cbf"
 API_KEY = "123"
 TELEGRAM_BOT_TOKEN = "7502015333:AAE59oY11x737Q8191162005jJf49945V78"
 
+# Deploy to workers.dev subdomain
+workers_dev = true
+
 # Routes
 [[routes]]
 pattern = "ammail.toirate.com/*"
