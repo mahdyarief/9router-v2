@@ -2,11 +2,6 @@ name = "ammail"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
-# Custom Domain
-[[custom_domains]]
-zone_id = "1a33863475cba456cf6f263a7b62b6cd"
-hostname = "ammail.toirate.com"
-
 # D1 Database
 [[d1_databases]]
 binding = "DB"
@@ -17,3 +12,8 @@ database_id = "348c3db2-67e6-4187-8c10-51b054e33cbf"
 [vars]
 API_KEY = "123"
 TELEGRAM_BOT_TOKEN = "7502015333:AAE59oY11x737Q8191162005jJf49945V78"
+
+# Routes
+routes = [
+  { pattern = "ammail.toirate.com/*", zone_name = "toirate.com" }
+]
