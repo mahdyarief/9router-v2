@@ -98,7 +98,11 @@ async function handleAPI(request: Request, env: Env, path: string): Promise<Resp
         .bind(email, alias, domain, Date.now())
         .run();
 
-      return new Response(JSON.stringify({ email, ok: true }), {
+      // Return nested structure for backend compatibility
+      return new Response(JSON.stringify({ 
+        inbox: { email, alias, domain, address: email },
+        ok: true 
+      }), {
         headers: { "Content-Type": "application/json" },
       });
     }
