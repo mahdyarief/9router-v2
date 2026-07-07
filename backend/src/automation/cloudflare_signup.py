@@ -608,8 +608,9 @@ def main():
             raise
 
     with browser_ctx as browser:
-        page = browser.new_page()
-        page.set_viewport_size({"width": 1920, "height": 1080})
+        # Pass viewport directly to avoid Playwright's default viewport settings
+        # that include unsupported properties like 'isMobile'
+        page = browser.new_page(viewport={"width": 1920, "height": 1080})
 
         # ── Step 1: Open Cloudflare signup ────────────────────────────────────
         log_step("Membuka halaman registrasi Cloudflare...")
