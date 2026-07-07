@@ -108,7 +108,9 @@ async function handleAPI(request: Request, env: Env, path: string): Promise<Resp
       const { results } = await env.DB.prepare(
         "SELECT * FROM inboxes ORDER BY created_at DESC"
       ).all();
-      return new Response(JSON.stringify({ inboxes: results }), {
+      // Map email to address for frontend compatibility
+      const inboxes = results.map((r: any) => ({ ...r, address: r.email }));
+      return new Response(JSON.stringify({ inboxes }), {
         headers: { "Content-Type": "application/json" },
       });
     }
