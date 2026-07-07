@@ -17,6 +17,6 @@ fi
 echo "🚀 Starting nginx..."
 nginx
 
-# Start backend
-echo "🚀 Starting 9Router v2 backend on port ${PORT:-20128}..."
-exec node /app/backend/dist/server.js
+# Start backend with tsx (no compile needed)
+echo "🚀 Starting 9Router v2 backend on port ${PORT:-3001}..."
+cd /app/backend && exec npx tsx src/server.ts

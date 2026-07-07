@@ -1,5 +1,5 @@
-# ─── Stage 1: Build Everything ─────────────────────────────────────────────────
-FROM node:20-alpine AS build
+# ─── Stage 1: Build Frontend ───────────────────────────────────────────────────
+FROM node:20-alpine AS frontend-build
 WORKDIR /app
 
 # Install build tools for native modules (better-sqlite3)
@@ -11,45 +11,39 @@ COPY frontend/package.json frontend/
 COPY backend/package.json backend/
 COPY backend/open-sse/package.json backend/open-sse/
 
-# Install ALL deps (including dev) for building
+# Install all deps
 RUN npm ci
 
-# Copy source
+# Copy frontend source
 COPY frontend/ frontend/
-COPY backend/src/ backend/src/
-COPY backend/tsconfig.json backend/
+COPY backend/open-sse/ backend/open-sse/
 
 # Build frontend → frontend/dist
 RUN npm run build --workspace=frontend
-
-# Build backend → backend/dist
-RUN npm run build --workspace=backend
 
 # ─── Stage 2: Production ──────────────────────────────────────────────────────
 FROM node:20-alpine AS production
 WORKDIR /app
 
-# Install nginx
-RUN apk add --no-cache nginx
+# Install nginx + build tools for native modules
+RUN apk add --no-cache python3 make g++ nginx
 
-# Copy node_modules from build (includes native modules already compiled)
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/backend/node_modules ./backend/node_modules
-
-# Copy package files (needed for workspace resolution)
+# Copy workspace package files
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/
 COPY backend/package.json backend/
 COPY backend/open-sse/package.json backend/open-sse/
 
+# Install ALL deps (tsx is devDep, needed to run backend)
+RUN npm ci
+
 # Copy built frontend
-COPY --from=build /app/frontend/dist ./frontend/dist
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
-# Copy built backend
-COPY --from=build /app/backend/dist ./backend/dist
-
-# Copy open-sse runtime files (plain JS)
-COPY backend/open-sse ./backend/open-sse
+# Copy backend source (run with tsx, no compile needed)
+COPY backend/src/ backend/src/
+COPY backend/tsconfig.json backend/
+COPY backend/open-sse/ backend/open-sse/
 
 # Copy nginx config
 COPY nginx.conf /etc/nginx/http.d/default.conf
