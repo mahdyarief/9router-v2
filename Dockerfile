@@ -25,8 +25,11 @@ RUN npm run build --workspace=frontend
 FROM node:20-alpine AS production
 WORKDIR /app
 
-# Install nginx + build tools for native modules
+# Install nginx + build tools for native modules + Python for automation scripts
 RUN apk add --no-cache python3 make g++ nginx
+
+# Create Python virtual environment for automation scripts
+RUN python3 -m venv /app/.venv
 
 # Copy workspace package files
 COPY package.json package-lock.json ./
@@ -44,6 +47,9 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 COPY backend/src/ backend/src/
 COPY backend/tsconfig.json backend/
 COPY backend/open-sse/ backend/open-sse/
+
+# Copy automation Python scripts
+COPY backend/src/automation/ backend/src/automation/
 
 # Copy nginx config
 COPY nginx.conf /etc/nginx/http.d/default.conf
