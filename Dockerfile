@@ -22,14 +22,25 @@ COPY backend/open-sse/ backend/open-sse/
 RUN npm run build --workspace=frontend
 
 # ─── Stage 2: Production ──────────────────────────────────────────────────────
-FROM node:20-alpine AS production
+FROM node:20-bookworm AS production
 WORKDIR /app
 
 # Install nginx + build tools for native modules + Python for automation scripts
-RUN apk add --no-cache python3 make g++ nginx
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-venv \
+    python3-pip \
+    nginx \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create Python virtual environment for automation scripts
 RUN python3 -m venv /app/.venv
+
+# Install Python dependencies for automation
+RUN /app/.venv/bin/pip install --upgrade pip && \
+    /app/.venv/bin/pip install playwright camoufox && \
+    /app/.venv/bin/python -m playwright install --with-deps firefox && \
+    /app/.venv/bin/python -m camoufox fetch
 
 # Copy workspace package files
 COPY package.json package-lock.json ./
