@@ -22,12 +22,18 @@ services:
       - ENABLE_REQUEST_LOGS=false
       - OBSERVABILITY_ENABLED=true
       - BASE_URL=http://localhost:20128
+    networks:
+      - services_backplane
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:20128/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+networks:
+  services_backplane:
+    external: true
 
 volumes:
   9router-data:
