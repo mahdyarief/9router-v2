@@ -1,0 +1,34 @@
+services:
+  9router-v2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: 9router-v2
+    restart: unless-stopped
+    ports:
+      - "20128:20128"
+    volumes:
+      - 9router-data:/var/lib/9router
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATA_DIR=/var/lib/9router
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-long-random-secret}
+      - INITIAL_PASSWORD=${INITIAL_PASSWORD:-change-me}
+      - API_KEY_SECRET=${API_KEY_SECRET:-endpoint-proxy-api-key-secret}
+      - MACHINE_ID_SALT=${MACHINE_ID_SALT:-endpoint-proxy-salt}
+      - AUTH_COOKIE_SECURE=false
+      - REQUIRE_API_KEY=false
+      - ENABLE_REQUEST_LOGS=false
+      - OBSERVABILITY_ENABLED=true
+      - BASE_URL=http://localhost:20128
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:20128/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  9router-data:
+    driver: local
