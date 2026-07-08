@@ -578,7 +578,6 @@ def main():
         headless=args.headless,
         os="windows",
         locale="en-US",
-        no_viewport=True,  # Prevent Playwright from setting isMobile property
     )
     if proxy_dict:
         launch_kwargs["proxy"] = proxy_dict
