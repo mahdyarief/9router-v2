@@ -608,14 +608,9 @@ def main():
             raise
 
     with browser_ctx as browser:
-        # Create page without viewport param to avoid Camoufox rejecting
-        # Playwright's default 'isMobile' property
-        page = browser.new_page()
-        # Set viewport size separately
-        try:
-            page.set_viewport_size({"width": 1920, "height": 1080})
-        except Exception:
-            pass  # Camoufox may manage viewport internally
+        # Create page - don't set viewport to avoid Camoufox CDP protocol error
+        # Camoufox doesn't support the 'isMobile' property in Browser.setDefaultViewport
+        page = browser.new_page(no_viewport=True)
 
         # ── Step 1: Open Cloudflare signup ────────────────────────────────────
         log_step("Membuka halaman registrasi Cloudflare...")
@@ -1073,6 +1068,27 @@ def main():
                     log_step(f"/ redirect final URL: {page.url}")
             except Exception as e:
                 log_step(f"Method 4 error: {e}")
+
+        # Method 5: Extract from sessionStorage keys (pattern: gates:{account_id}:...)
+        if not account_id:
+            try:
+                log_step("Extracting account_id from sessionStorage...")
+                storage_keys = page.evaluate("""() => {
+                    const keys = [];
+                    for (let i = 0; i < sessionStorage.length; i++) {
+                        keys.push(sessionStorage.key(i));
+                    }
+                    return keys;
+                }""")
+                log_step(f"Found {len(storage_keys)} sessionStorage keys")
+                for key in storage_keys:
+                    match = re.search(r'gates:([a-f0-9]{32}):', key)
+                    if match:
+                        account_id = match.group(1)
+                        log_step(f"Account ID from sessionStorage key: {account_id[:8]}...")
+                        break
+            except Exception as e:
+                log_step(f"SessionStorage extraction error: {e}")
 
         # ── Step 9/10: Buat Workers AI Token via Session API ─────────────────
         global_key = None
@@ -1576,17 +1592,19 @@ def main():
         except Exception as e:
             log_step(f"Session API token failed: {e}")
 
-        # ── EARLY GAK ATTEMPT: Try Global API Key first if ammail available ─────
+        # ── EARLY GAK ATTEMPT: Skip GAK - Cloudflare UI changed, GAK section no longer visible ─────
         workers_ai_token = None
         token_from_route = []  # always init — used later regardless of GAK success
-        if ammail_ok:
-            log_step("Mencoba GAK dulu (skip UI form yang sering gagal)...")
-            try:
-                workers_ai_token = create_token_via_global_key(page)
-                if workers_ai_token:
-                    log_step(f"Workers AI token via GAK (early): {workers_ai_token[:10]}...")
-            except Exception as _egak_e:
-                log_step(f"Early GAK error: {_egak_e}")
+        # Skip GAK attempt - it's not working with new Cloudflare UI
+        # if ammail_ok:
+        #     log_step("Mencoba GAK dulu (skip UI form yang sering gagal)...")
+        #     try:
+        #         workers_ai_token = create_token_via_global_key(page)
+        #         if workers_ai_token:
+        #             log_step(f"Workers AI token via GAK (early): {workers_ai_token[:10]}...")
+        #     except Exception as _egak_e:
+        #         log_step(f"Early GAK error: {_egak_e}")
+        log_step("Skipping GAK attempt (Cloudflare UI changed)")
 
         # ── Strategy B: Browser UI — /profile/api-tokens/create (dropdown form)
         if not workers_ai_token:
@@ -1721,12 +1739,16 @@ def main():
                         pass
 
             # 1. Navigate to profile/api-tokens (not account-specific)
-            page.goto("https://dash.cloudflare.com/profile/api-tokens", wait_until="domcontentloaded", timeout=25000)
-            wait_for_cf_clearance(page, timeout=15)
-            time.sleep(3)
-            dismiss_consent_dialogs(page)
-            log_step(f"API Tokens page: {page.url}")
-            page.screenshot(path="/tmp/cf_tokens_page.png")
+            try:
+                page.goto("https://dash.cloudflare.com/profile/api-tokens", wait_until="domcontentloaded", timeout=25000)
+                wait_for_cf_clearance(page, timeout=15)
+                time.sleep(3)
+                dismiss_consent_dialogs(page)
+                log_step(f"API Tokens page: {page.url}")
+                page.screenshot(path="/tmp/cf_tokens_page.png")
+            except Exception as nav_err:
+                log_step(f"Navigation error: {nav_err}")
+                raise
 
             # 2. Click "Create Token" button → wait for template page to render
             for btn_sel in ["button:has-text('Create Token')", "a:has-text('Create Token')"]:
