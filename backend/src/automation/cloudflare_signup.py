@@ -540,11 +540,11 @@ def main():
         success(args.token.strip(), args.account_id_arg.strip(), args.email)
         return
 
-    # Import Camoufox (same as weavy_signup.py)
+    # Import Playwright
     try:
-        from camoufox.sync_api import Camoufox
+        from playwright.sync_api import sync_playwright
     except ImportError:
-        die("Camoufox tidak terinstall. Jalankan: pip install camoufox && python -m camoufox fetch")
+        die("Playwright tidak terinstall. Jalankan: pip install playwright && playwright install chromium")
 
     profiles_dir = Path(args.profiles_dir)
     profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -558,7 +558,7 @@ def main():
         except Exception as e:
             log_step(f"Ammail inbox warning: {e}")
 
-    log_step("Meluncurkan browser Camoufox (anti-fingerprint)...")
+    log_step("Meluncurkan browser Chromium...")
 
     # Stagger delay — when running concurrent instances, delay launch to avoid
     # resource contention and Cloudflare rate-limit detection
@@ -574,41 +574,32 @@ def main():
         if args.proxy_pass:
             proxy_dict["password"] = args.proxy_pass
 
-    launch_kwargs = dict(
-        headless=args.headless,
-        os="windows",
-        locale="en-US",
-    )
+    playwright = sync_playwright().start()
+    
+    launch_kwargs = {
+        "headless": args.headless,
+        "args": ["--disable-blink-features=AutomationControlled"],
+    }
     if proxy_dict:
         launch_kwargs["proxy"] = proxy_dict
-        launch_kwargs["geoip"] = True  # match geolocation to proxy IP (suppresses LeakWarning)
-
-    def _make_camoufox(kw):
-        """Launch Camoufox, stripping unsupported kwargs one by one."""
-        try:
-            return Camoufox(**kw)
-        except TypeError:
-            kw.pop("os", None)
-            try:
-                return Camoufox(**kw)
-            except TypeError:
-                kw.pop("locale", None)
-                return Camoufox(**kw)
 
     try:
-        browser_ctx = _make_camoufox(dict(launch_kwargs))
+        browser = playwright.chromium.launch(**launch_kwargs)
     except Exception as _pe:
         _ps = str(_pe)
         if proxy_dict and any(k in _ps for k in ("InvalidProxy","Tunnel connection","Failed to connect to proxy","ProxyError")):
             log_step(f"Proxy dead ({proxy_dict.get('server','?')}) — fallback tanpa proxy")
             launch_kwargs.pop("proxy", None)
-            launch_kwargs.pop("geoip", None)
-            browser_ctx = _make_camoufox(dict(launch_kwargs))
+            browser = playwright.chromium.launch(**launch_kwargs)
         else:
             raise
 
-    with browser_ctx as browser:
-        page = browser.new_page(no_viewport=True)
+    context = browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        locale="en-US",
+    )
+    page = context.new_page()
 
         # ── Step 1: Open Cloudflare signup ────────────────────────────────────
         log_step("Membuka halaman registrasi Cloudflare...")
