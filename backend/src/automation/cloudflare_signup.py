@@ -578,6 +578,7 @@ def main():
         headless=args.headless,
         os="windows",
         locale="en-US",
+        no_viewport=True,  # Prevent Playwright from setting isMobile property
     )
     if proxy_dict:
         launch_kwargs["proxy"] = proxy_dict
@@ -608,9 +609,7 @@ def main():
             raise
 
     with browser_ctx as browser:
-        # Create page - don't set viewport to avoid Camoufox CDP protocol error
-        # Camoufox doesn't support the 'isMobile' property in Browser.setDefaultViewport
-        page = browser.new_page(no_viewport=True)
+        page = browser.new_page()
 
         # ── Step 1: Open Cloudflare signup ────────────────────────────────────
         log_step("Membuka halaman registrasi Cloudflare...")
@@ -767,7 +766,12 @@ def main():
 
         if email_already_registered:
             # Navigate FRESH to /login (don't carry stale security_token from verify link)
-            page.goto("https://dash.cloudflare.com/login", wait_until="domcontentloaded", timeout=30000)
+            try:
+                page.goto("https://dash.cloudflare.com/login", wait_until="domcontentloaded", timeout=30000)
+            except Exception as nav_err:
+                # NS_BINDING_ABORTED can happen during redirects, wait for page to settle
+                log_step(f"Navigation to login had error: {nav_err}, waiting for page to settle...")
+                time.sleep(5)
             time.sleep(3)
 
 
