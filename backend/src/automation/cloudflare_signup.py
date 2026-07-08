@@ -601,18 +601,18 @@ def main():
     )
     page = context.new_page()
 
-        # ── Step 1: Open Cloudflare signup ────────────────────────────────────
-        log_step("Membuka halaman registrasi Cloudflare...")
-        try:
-            page.goto("https://dash.cloudflare.com/sign-up", wait_until="domcontentloaded", timeout=30000)
-        except Exception:
-            page.goto("https://dash.cloudflare.com/sign-up", wait_until="load", timeout=30000)
+    # ── Step 1: Open Cloudflare signup ────────────────────────────────────
+    log_step("Membuka halaman registrasi Cloudflare...")
+    try:
+        page.goto("https://dash.cloudflare.com/sign-up", wait_until="domcontentloaded", timeout=30000)
+    except Exception:
+        page.goto("https://dash.cloudflare.com/sign-up", wait_until="load", timeout=30000)
 
-        wait_for_cf_clearance(page, timeout=30)
-        time.sleep(random.uniform(1.5, 2.5))
+    wait_for_cf_clearance(page, timeout=30)
+    time.sleep(random.uniform(1.5, 2.5))
 
-        # ── Step 2: Fill email ────────────────────────────────────────────────
-        log_step("Menunggu form signup muncul...")
+    # ── Step 2: Fill email ────────────────────────────────────────────────
+    log_step("Menunggu form signup muncul...")
         form_found = False
         for attempt in range(3):
             try:
