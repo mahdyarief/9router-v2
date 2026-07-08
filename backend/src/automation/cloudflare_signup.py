@@ -608,7 +608,7 @@ def main():
             raise
 
     with browser_ctx as browser:
-        page = browser.new_page()
+        page = browser.new_page(no_viewport=True)
 
         # ── Step 1: Open Cloudflare signup ────────────────────────────────────
         log_step("Membuka halaman registrasi Cloudflare...")
